@@ -12,10 +12,9 @@ export const transaction = (component: DatabaseComponent) => {
     descriptor.value = async function (...args: unknown[]) {
       const inputManager: EntityManager = args[idx] as EntityManager || component.manager;
       if (!inputManager.queryRunner || !inputManager.queryRunner.isTransactionActive) {
-        args[idx] = await new Promise<EntityManager>((resolve, reject) => {
-          inputManager.transaction(async (manager) => {
-            resolve(manager);
-          }).catch(reject);
+        return inputManager.transaction(async (manager) => {
+          args[idx] = manager;
+          return origin.apply(this, args) as unknown;
         });
       }
       return origin.apply(this, args) as unknown;
