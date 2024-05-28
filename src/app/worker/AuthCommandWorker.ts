@@ -46,7 +46,7 @@ class AuthCommandWorker extends Worker {
         await AccountWorld.createAccount({
           nickname: username,
         }, [{
-          type: AccountLoginType.USERNAME,
+          type: AccountLoginType.Username,
           username,
           password: md5Password,
         }], [RootGroupId]);

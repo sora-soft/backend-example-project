@@ -1,8 +1,8 @@
 import {ILoggerData, ILoggerOutputOptions, LoggerOutput, Utility} from '@sora-soft/framework';
 import {mkdirp} from 'mkdirp';
-import moment = require('moment');
-import fs = require('fs');
-import path = require('path');
+import moment from 'moment';
+import fs from 'fs';
+import path from 'path';
 
 export interface IFileOutputOptions extends ILoggerOutputOptions {
   fileFormat: string;
@@ -23,7 +23,20 @@ class FileOutput extends LoggerOutput {
       await this.createFileStream(filename);
     }
     if (this.stream_) {
-      this.stream_.write(`${data.timeString},${data.level},${data.identify},${data.category},${data.position},${data.content}\n`);
+      this.stream_.write(`${JSON.stringify({
+        time: data.timeString,
+        level: data.level,
+        identify: data.identify,
+        category: data.category,
+        position: data.position,
+        content: JSON.parse(data.content) as unknown,
+      })}\n`);
+    }
+  }
+
+  async end() {
+    if (this.stream_) {
+      this.stream_.end();
     }
   }
 

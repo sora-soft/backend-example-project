@@ -1,7 +1,6 @@
 import 'source-map-support/register.js';
 import {Application, IApplicationOptions} from './app/Application.js';
 import {ConfigLoader} from './lib/ConfigLoader.js';
-import path = require('path');
 import 'reflect-metadata';
 import {Context, ExError, Logger, Runtime} from '@sora-soft/framework';
 import {AppError} from './app/AppError.js';
@@ -79,12 +78,6 @@ export const command = async (options: IStartupOptions) => {
 
 const loadConfig = async (options: IStartupOptions) => {
   const configLoader = new ConfigLoader<IApplicationOptions>();
-  // const configPath = options.config;
   await configLoader.load(options.config);
-  // if (path.isAbsolute(configPath)) {
-  //   await configLoader.load(options.config);
-  // } else {
-  //   await configLoader.load(path.resolve(process.cwd(), options.config));
-  // }
   return configLoader.getConfig();
 };

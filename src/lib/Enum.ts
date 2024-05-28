@@ -3,8 +3,3 @@ export enum ConfigFileType {
   YAML,
   RAW
 }
-
-export enum AccountType {
-  Admin,
-  User,
-}

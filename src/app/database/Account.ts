@@ -73,8 +73,8 @@ export class Account {
   @Column({length: 64, nullable: true})
   nickname?: string;
 
-  @Column({nullable: true})
-  avatarUrl?: string;
+  @Column({type: 'text', nullable: true})
+  avatar?: string;
 
   @ManyToMany(() => AuthGroup)
   @JoinTable({
@@ -92,6 +92,9 @@ export class Account {
 
   @Column()
   createTime!: Timestamp;
+
+  @Column()
+  lastLoginTime!: Timestamp;
 
   @Column({default: false})
   disabled!: boolean;

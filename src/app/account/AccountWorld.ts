@@ -2,7 +2,7 @@ import {Hash, Random} from '../../lib/Utility.js';
 import {Com} from '../../lib/Com.js';
 import {Account, AccountAuthGroup, AccountLogin, AccountToken} from '../database/Account.js';
 import {AuthGroup, AuthPermission} from '../database/Auth.js';
-import {UserErrorCode} from '../ErrorCode.js';
+import {AppErrorCode, UserErrorCode} from '../ErrorCode.js';
 import {RedisKey} from '../Keys.js';
 import {UserError} from '../UserError.js';
 import {AccountId, AccountLoginType, AuthGroupId, DefaultGroupList, DefaultPermissionList, PermissionResult, RootGroupId} from './AccountType.js';
@@ -15,6 +15,7 @@ import {EntityManager, LessThan, Not, MoreThan, In} from '@sora-soft/database-co
 import {transaction} from '../database/utility/Decorators.js';
 import {v4 as uuid} from 'uuid';
 import {AccountPermission} from './AccountPermission.js';
+import {AppError} from '../AppError.js';
 
 class AccountWorld {
   static async startup() {
@@ -60,7 +61,9 @@ class AccountWorld {
 
   @transaction(Com.businessDB)
   static async setAccountSession(session: string, account: Account, expire: number = UnixTime.hour(8), manager?: EntityManager) {
-    return manager!.save(new AccountToken({
+    if (!manager)
+      throw new AppError(AppErrorCode.ERR_TRANSACTION_FAILED, 'ERR_TRANSACTION_FAILED');
+    return manager.save(new AccountToken({
       session,
       accountId: account.id,
       expireAt: UnixTime.now() + expire,
@@ -69,17 +72,23 @@ class AccountWorld {
 
   @transaction(Com.businessDB)
   static async deleteAccountSession(session: string, manager?: EntityManager) {
-    return manager!.delete(AccountToken, {session});
+    if (!manager)
+      throw new AppError(AppErrorCode.ERR_TRANSACTION_FAILED, 'ERR_TRANSACTION_FAILED');
+    return manager.delete(AccountToken, {session});
   }
 
   @transaction(Com.businessDB)
   static async deleteAccountSessionByAccountId(accountId: AccountId, manager?: EntityManager) {
-    return manager!.delete(AccountToken, {accountId});
+    if (!manager)
+      throw new AppError(AppErrorCode.ERR_TRANSACTION_FAILED, 'ERR_TRANSACTION_FAILED');
+    return manager.delete(AccountToken, {accountId});
   }
 
   @transaction(Com.businessDB)
   static async deleteAccountSessionByAccountIdExcept(accountId: AccountId, token: string, manager?: EntityManager) {
-    return manager!.delete(AccountToken, {
+    if (!manager)
+      throw new AppError(AppErrorCode.ERR_TRANSACTION_FAILED, 'ERR_TRANSACTION_FAILED');
+    return manager.delete(AccountToken, {
       accountId,
       session: Not(token),
     });
@@ -87,19 +96,26 @@ class AccountWorld {
 
   @transaction(Com.businessDB)
   static async deleteExpiredAccountSession(manager?: EntityManager) {
-    return manager!.delete(AccountToken, {
+    if (!manager)
+      throw new AppError(AppErrorCode.ERR_TRANSACTION_FAILED, 'ERR_TRANSACTION_FAILED');
+    return manager.delete(AccountToken, {
       expireAt: LessThan(UnixTime.now()),
     });
   }
 
   @transaction(Com.businessDB)
   static async deleteAccountSessionByGid(gid: AuthGroupId, manager?: EntityManager) {
-    return manager!.delete(AccountToken, {gid});
+    if (!manager)
+      throw new AppError(AppErrorCode.ERR_TRANSACTION_FAILED, 'ERR_TRANSACTION_FAILED');
+    return manager.delete(AccountToken, {gid});
   }
 
   @transaction(Com.businessDB)
   static async updateAccountGroupList(accountId: AccountId, groupIdList: AuthGroupId[], manager?: EntityManager) {
-    await manager!.delete(AccountAuthGroup, {
+    if (!manager)
+      throw new AppError(AppErrorCode.ERR_TRANSACTION_FAILED, 'ERR_TRANSACTION_FAILED');
+
+    await manager.delete(AccountAuthGroup, {
       accountId,
     });
 
@@ -111,7 +127,7 @@ class AccountWorld {
       });
       authGroupList.push(accountAuthGroup);
     }
-    await manager!.save(authGroupList);
+    await manager.save(authGroupList);
   }
 
   static async hasAuth(gid: AuthGroupId, name: string) {
@@ -133,9 +149,12 @@ class AccountWorld {
 
   @transaction(Com.businessDB)
   static async resetAccountPassword(account: Account, password: string, manager?: EntityManager) {
+    if (!manager)
+      throw new AppError(AppErrorCode.ERR_TRANSACTION_FAILED, 'ERR_TRANSACTION_FAILED');
+
     const salt = Random.randomString(20);
     const hashedPassword = Hash.md5(password + salt);
-    await manager!.update(AccountLogin, {id: account.id, type: In([AccountLoginType.USERNAME, AccountLoginType.EMAIL])}, {
+    await manager.update(AccountLogin, {id: account.id, type: In([AccountLoginType.Username, AccountLoginType.Email])}, {
       password: hashedPassword,
       salt,
     });
@@ -158,7 +177,7 @@ class AccountWorld {
     return Com.businessRedis.getJSON<{accountId: AccountId; code: string}>(RedisKey.resetPasswordCode(id));
   }
 
-  static async createAccount(account: Pick<Account, 'avatarUrl' | 'nickname'>, loginList: Pick<AccountLogin, 'type' | 'username' | 'password'>[], groupIdList: AuthGroupId[]) {
+  static async createAccount(account: Pick<Account, 'nickname' | 'avatar'>, loginList: Pick<AccountLogin, 'type' | 'username' | 'password'>[], groupIdList: AuthGroupId[]) {
     return AccountLock.registerLock(loginList, async () => {
       const loginExisted = await Com.businessDB.manager.count(AccountLogin, {
         where: loginList.map(login => {
@@ -174,9 +193,10 @@ class AccountWorld {
 
       const newAccount = new Account({
         nickname: account.nickname,
-        avatarUrl: account.avatarUrl,
         disabled: false,
         createTime: UnixTime.now(),
+        lastLoginTime: 0,
+        avatar: account.avatar,
       });
 
       const accountErrors = await validate(newAccount);
@@ -249,6 +269,33 @@ class AccountWorld {
     return new AccountPermission(permissionList);
   }
 
+  static async fetchAccountLoginInfo(id: AccountId, token: AccountToken) {
+    const account = await Com.businessDB.manager.findOne(Account, {
+      where: {
+        id,
+      },
+    });
+
+    if (!account)
+      throw new AppError(AppErrorCode.ERR_ACCOUNT_NOT_FOUND, 'ERR_ACCOUNT_NOT_FOUND');
+
+    const permissions = await this.fetchAccountPermission(id);
+
+    return {
+      account: {
+        id: account.id,
+        nickname: account.nickname,
+        disabled: account.disabled,
+        avatar: account.avatar,
+      },
+      permissions: permissions.list,
+      authorization: {
+        token: token.session,
+        expireAt: token.expireAt,
+      },
+    };
+  }
+
   static async accountLogin(accountId: AccountId, ttl: number) {
     const account = await Com.businessDB.manager.findOne(Account, {
       where: {
@@ -265,22 +312,11 @@ class AccountWorld {
     const token = uuid();
     const newToken = await AccountWorld.setAccountSession(token, account, ttl);
 
-    const permissions = await this.fetchAccountPermission(account.id);
+    const loginInfo = await this.fetchAccountLoginInfo(accountId, newToken);
 
     Application.appLog.info('gateway', {event: 'account-login', account: {id: account.id}});
 
-    return {
-      account: {
-        id: account.id,
-        nickname: account.nickname,
-        avatarUrl: account.avatarUrl,
-      },
-      permissions: permissions.list,
-      authorization: {
-        token,
-        expireAt: newToken.expireAt,
-      },
-    };
+    return loginInfo;
   }
 }
 

@@ -1,7 +1,7 @@
 {
-  "name": "example-project",
+  "name": "whitecloud-server",
   "version": "1.0.0",
-  "description": "sora system example",
+  "description": "",
   "bin": {
     "app-server": "./bin/cli.js"
   },
@@ -21,16 +21,11 @@
     "prepare": "husky install",
     "preCommit": "lint-staged"
   },
-  "repository": "git@github.com/sora-soft/example-project.git",
   "keywords": [
     "sora"
   ],
   "author": "yaya",
   "license": "WTFPL",
-  "bugs": {
-    "url": "https://github.com/sora-soft/example-project/issues"
-  },
-  "homepage": "https://github.com/sora-soft/example-project#readme",
   "husky": {
     "hooks": {
       "pre-commit": "lint-staged"
@@ -43,13 +38,14 @@
   },
   "dependencies": {
     "@alicloud/pop-core": "^1.7.10",
-    "@sora-soft/database-component": "^1.6.2",
+    "@sora-soft/database-component": "^1.6.3",
     "@sora-soft/etcd-component": "^1.2.5",
     "@sora-soft/etcd-discovery": "^1.4.1",
-    "@sora-soft/framework": "^1.12.1",
+    "@sora-soft/framework": "^1.12.9",
     "@sora-soft/http-support": "^1.5.1",
-    "@sora-soft/redis-component": "^1.3.1",
+    "@sora-soft/redis-component": "^1.3.2",
     "@sora-soft/type-guard": "^1.1.1",
+    "ali-oss": "^6.18.0",
     "axios": "^1.4.0",
     "camelcase": "^6.2.0",
     "class-validator": "^0.13.1",
@@ -64,12 +60,12 @@
   },
   "devDependencies": {
     "@sora-soft/cli": "^1.4.1",
+    "@types/ali-oss": "^6.16.11",
     "@types/assert": "^1.5.4",
     "@types/expect": "^24.3.0",
     "@types/js-yaml": "^4.0.0",
     "@types/koa": "^2.13.1",
     "@types/md5": "^2.3.0",
-    "@types/mocha": "^8.2.2",
     "@types/moment": "^2.13.0",
     "@types/node": "^14.14.37",
     "@types/source-map-support": "^0.5.3",
@@ -85,7 +81,6 @@
     "husky": "^8.0.3",
     "lint-staged": "^13.1.2",
     "rimraf": "^3.0.2",
-    "tslint": "^6.1.3",
     "ttypescript": "^1.5.15",
     "typescript": "^4.9.0"
   }

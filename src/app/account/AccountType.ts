@@ -10,8 +10,8 @@ export enum PermissionResult {
 }
 
 export enum AccountLoginType {
-  USERNAME = 1,
-  EMAIL = 2,
+  Username = 1,
+  Email = 2,
 }
 
 // 默认游客 gid

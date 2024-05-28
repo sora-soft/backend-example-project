@@ -4,7 +4,7 @@ import {Com} from '../../lib/Com.js';
 import {AccountRoute} from '../../lib/route/AccountRoute.js';
 import {AuthRoute} from '../../lib/route/AuthRoute.js';
 import {Hash, Random, Util} from '../../lib/Utility.js';
-import {AccountId, AccountLoginType, AuthGroupId, PermissionResult, UserGroupId} from '../account/AccountType.js';
+import {AccountId, AccountLoginType, AuthGroupId, PermissionResult} from '../account/AccountType.js';
 import {AccountWorld} from '../account/AccountWorld.js';
 import {Application} from '../Application.js';
 import {Account, AccountAuthGroup, AccountLogin, AccountToken} from '../database/Account.js';
@@ -12,7 +12,6 @@ import {AuthGroup, AuthPermission} from '../database/Auth.js';
 import {UserErrorCode} from '../ErrorCode.js';
 import {RedisKey} from '../Keys.js';
 import {UserError} from '../UserError.js';
-import {AccountPermission} from '../account/AccountPermission.js';
 
 export interface IReqUpdatePermission {
   gid: AuthGroupId;
@@ -75,33 +74,8 @@ export interface IReqLogin {
   remember: boolean;
 }
 
-
 @ValidateClass()
 class AuthHandler extends AuthRoute {
-  @Route.method
-  async register(@AssertType() body: IReqRegister) {
-    const account = await AccountWorld.createAccount(
-      {
-        nickname: body.nickname,
-        avatarUrl: body.avatarUrl,
-      },
-      [{
-        type: AccountLoginType.USERNAME,
-        username: body.username,
-        password: body.password,
-      }, {
-        type: AccountLoginType.EMAIL,
-        username: body.email,
-        password: body.password,
-      }],
-      [UserGroupId]
-    );
-
-    return {
-      id: account.id,
-    };
-  }
-
   @Route.method
   async login(@AssertType() body: IReqLogin) {
     const loginInfo = await Com.businessDB.manager.findOne(AccountLogin, {
@@ -124,20 +98,11 @@ class AuthHandler extends AuthRoute {
   @Route.method
   @AccountRoute.account()
   @AccountRoute.token()
-  @AccountRoute.permission()
-  async info(body: void, account: Account, token: AccountToken, permission: AccountPermission) {
-    return {
-      account: {
-        id: account.id,
-        nickname: account.nickname,
-        avatarUrl: account.avatarUrl,
-      },
-      permissions: permission.list,
-      authorization: {
-        token: token.session,
-        expireAt: token.expireAt,
-      },
-    };
+  async info(body: void, account: Account, token: AccountToken) {
+    account.lastLoginTime = UnixTime.now();
+    await Com.businessDB.manager.save(account);
+
+    return AccountWorld.fetchAccountLoginInfo(account.id, token);
   }
 
   @Route.method
@@ -146,18 +111,6 @@ class AuthHandler extends AuthRoute {
     await AccountWorld.deleteAccountSession(token.session);
 
     return {};
-  }
-
-  @Route.method
-  @AuthRoute.logined
-  async fetchAccountList() {
-    const list = await Com.businessDB.manager.find(Account, {
-      select: ['id', 'nickname'],
-    });
-
-    return {
-      list,
-    };
   }
 
   @Route.method
@@ -279,11 +232,11 @@ class AuthHandler extends AuthRoute {
     const account = await AccountWorld.createAccount({
       nickname: body.nickname,
     }, [{
-      type: AccountLoginType.USERNAME,
+      type: AccountLoginType.Username,
       username: body.username,
       password: body.password,
     }, {
-      type: AccountLoginType.EMAIL,
+      type: AccountLoginType.Email,
       username: body.email,
       password: body.password,
     }], body.groupList);
@@ -317,7 +270,7 @@ class AuthHandler extends AuthRoute {
   @Route.method
   async requestForgetPassword(@AssertType() body: IReqRequestForgetPassword) {
     const account = await Com.businessDB.manager.findOneBy(AccountLogin, {
-      type: AccountLoginType.EMAIL,
+      type: AccountLoginType.Email,
       username: body.email,
     });
 

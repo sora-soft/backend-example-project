@@ -2,9 +2,12 @@ import {ErrorLevel, ExError, IRawResPacket, ListenerCallback, Logger, NodeTime, 
 import {AccountWorld} from '../../app/account/AccountWorld.js';
 import {Application} from '../../app/Application.js';
 import {AccountToken} from '../../app/database/Account.js';
-import {UserErrorCode} from '../../app/ErrorCode.js';
+import {AppErrorCode, UserErrorCode} from '../../app/ErrorCode.js';
 import {ServiceName} from '../../app/service/common/ServiceName.js';
 import {AuthRPCHeader, ForwardRPCHeader} from '../Const.js';
+import {AppError} from '../../app/AppError.js';
+import {RPCConst} from '../../app/Const.js';
+import {UserError} from '../../app/UserError.js';
 
 type RouteMap = { [key in ServiceName]?: Provider<Route>};
 
@@ -14,6 +17,8 @@ class ForwardRoute<T extends Service = Service> extends Route {
     this.service = service;
     this.routeProviderMap_ = new Map();
     for (const [name, value] of Object.entries(route)) {
+      if (!value.isStarted)
+        throw new AppError(AppErrorCode.ERR_PROVIDER_NOT_STARTED, `ERR_PROVIDER_NOT_STARTED, name=${name}`);
       if (value) {
         this.routeProviderMap_.set(name, value);
       }
@@ -25,7 +30,7 @@ class ForwardRoute<T extends Service = Service> extends Route {
 
   private getProvider(service: ServiceName) {
     if (!this.routeProviderMap_.has(service))
-      throw new RPCError(RPCErrorCode.ERR_RPC_SERVICE_NOT_FOUND, `ERR_RPC_SERVICE_NOT_FOUND, service=${service}`);
+      throw new UserError(UserErrorCode.ERR_INVALID_REQUEST, `ERR_INVALID_REQUEST, service=${service}`);
 
     const provider: Provider<Route> | undefined = this.routeProviderMap_.get(service);
     if (!provider)
@@ -39,7 +44,7 @@ class ForwardRoute<T extends Service = Service> extends Route {
     let authorization: string | null = null;
     if (authorizationHeader) {
       const [scheme, headerToken] = authorizationHeader.split(' ');
-      if (scheme === 'sora-rpc-authorization' && headerToken) {
+      if (scheme === RPCConst.TOKEN_SCHEME && headerToken) {
         authorization = headerToken;
       }
     }
@@ -55,7 +60,7 @@ class ForwardRoute<T extends Service = Service> extends Route {
   }
 
   static callback(route: ForwardRoute): ListenerCallback {
-    return async (packet, session, connector): Promise<IRawResPacket | null> => {
+    return async (packet, session): Promise<IRawResPacket | null> => {
       const startTime = Date.now();
       switch (packet.opcode) {
         case OPCode.REQUEST: {
@@ -64,17 +69,15 @@ class ForwardRoute<T extends Service = Service> extends Route {
             headers: {},
             payload: {error: null, result: null},
           });
-          if (!packet.service)
-            this.makeErrorRPCResponse(request, response, new RPCResponseError(RPCErrorCode.ERR_RPC_METHOD_NOT_FOUND, ErrorLevel.EXPECTED, 'ERR_RPC_METHOD_NOT_FOUND'));
+          if (!packet.service) {
+            return this.makeErrorRPCResponse(request, response, new RPCResponseError(RPCErrorCode.ERR_RPC_METHOD_NOT_FOUND, ErrorLevel.EXPECTED, 'ERR_RPC_METHOD_NOT_FOUND'));
+          }
 
           const service = request.service as ServiceName;
           const method = request.method;
           const token = await this.fetchIncomingToken(request);
 
           const rpcId = request.getHeader(RPCHeader.RPC_ID_HEADER);
-          request.setHeader(AuthRPCHeader.RPC_AUTHORIZATION, token?.session);
-          request.setHeader(AuthRPCHeader.RPC_ACCOUNT_ID, token?.accountId);
-          request.setHeader(RPCHeader.RPC_SESSION_HEADER, session);
           Runtime.rpcLogger.debug('forward-route', {service: route.service.name, method: request.method, request: request.payload});
 
           response.setHeader(RPCHeader.RPC_ID_HEADER, rpcId);
@@ -87,30 +90,27 @@ class ForwardRoute<T extends Service = Service> extends Route {
             headers: {
               [ForwardRPCHeader.RPC_GATEWAY_ID]: route.service.id,
               [ForwardRPCHeader.RPC_GATEWAY_SESSION]: session,
-              [AuthRPCHeader.RPC_ACCOUNT_ID]: token ? token.accountId : null,
+              [AuthRPCHeader.RPC_ACCOUNT_ID]: token?.accountId,
               [AuthRPCHeader.RPC_AUTHORIZATION]: token?.session,
             },
             timeout: NodeTime.second(60),
           }, true).catch((error: ExError) => {
             switch (error.level) {
               case ErrorLevel.EXPECTED:
-                throw new RPCResponseError(error.code as RPCErrorCode, ErrorLevel.EXPECTED, error.message);
+                throw new RPCResponseError(error.code as RPCErrorCode, ErrorLevel.EXPECTED, error.message, ...error.args);
               default:
                 Application.appLog.error('forward-route', error, {error: Logger.errorMessage(error), service, method});
-                throw new RPCResponseError(UserErrorCode.ERR_SERVER_INTERNAL, ErrorLevel.UNEXPECTED, 'ERR_SERVER_INTERNAL');
+                throw new RPCResponseError(UserErrorCode.ERR_SERVER_INTERNAL, ErrorLevel.UNEXPECTED, 'ERR_SERVER_INTERNAL', error.message);
             }
           });
           response.payload = res.payload;
-          Runtime.rpcLogger.debug('forward-route', {service: route.service.name, method: request.method, duration: Date.now() - startTime});
+          Runtime.rpcLogger.debug('forward-route', {service: route.service.name, method: request.method, duration: Date.now() - startTime, response: response.payload});
           return response.toPacket();
         }
         case OPCode.NOTIFY: {
           const notify = new Notify(packet);
           const token = await this.fetchIncomingToken(notify);
 
-          notify.setHeader(RPCHeader.RPC_SESSION_HEADER, session);
-          notify.setHeader(AuthRPCHeader.RPC_ACCOUNT_ID, token?.accountId);
-          notify.setHeader(AuthRPCHeader.RPC_AUTHORIZATION, token?.session);
           Runtime.rpcLogger.debug('forward-route', {service: route.service.name, method: notify.method});
 
           if (!packet.service)
@@ -128,6 +128,7 @@ class ForwardRoute<T extends Service = Service> extends Route {
               [ForwardRPCHeader.RPC_GATEWAY_SESSION]: session,
               [AuthRPCHeader.RPC_ACCOUNT_ID]: token ? token.accountId : null,
               [AuthRPCHeader.RPC_AUTHORIZATION]: token?.session,
+              [RPCHeader.RPC_SESSION_HEADER]: session,
             },
           });
           Runtime.rpcLogger.debug('forward-route', {service: route.service.name, method: notify.method, duration: Date.now() - startTime});
